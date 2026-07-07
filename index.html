@@ -85,6 +85,7 @@ input[type="datetime-local"]{color-scheme:dark}
 /* checkbox */
 .chk{display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer;margin-top:4px}
 .chk input{width:18px;height:18px;accent-color:var(--gold);cursor:pointer}
+.pill{display:inline-block;font-size:11px;font-weight:700;color:var(--navy);background:var(--gold);border-radius:999px;padding:2px 10px;margin-left:8px;vertical-align:middle}
 /* error */
 .errbox{
   background:rgba(224,103,103,.12);border:1px solid var(--err);
@@ -154,30 +155,23 @@ footer{text-align:center;font-size:11px;color:var(--muted);margin-top:30px}
       <div class="summary" id="summaryBox"></div>
     </div>
     <div class="card">
-      <div class="label">STEP 2：ポスト案を選択</div>
+      <div class="label">STEP 2：ポスト案を選択（最大3つ・複数選択可）</div>
       <div id="draftList"></div>
-      <button class="btn" id="btnPick" disabled>この案で進む</button>
+      <button class="btn" id="btnPick" disabled>選んだ案で進む</button>
       <button class="btn ghost" id="btnBack1">入力に戻る</button>
     </div>
   </section>
 
   <!-- STEP3 編集・予約 -->
   <section id="scrEdit" class="hidden">
-    <div class="card">
-      <div class="label">STEP 3：本文の微修正</div>
-      <textarea id="editText" rows="6"></textarea>
-      <div class="counter" id="charCount">0 / 140</div>
-      <p class="hint">URLは23文字換算。140文字以内に収めてください。</p>
-    </div>
+    <div id="editBlocks"></div>
     <div class="card">
       <div class="label">サムネイル画像</div>
-      <label class="chk"><input type="checkbox" id="genThumb"> サムネイル画像を生成する</label>
+      <label class="chk"><input type="checkbox" id="genThumb"> サムネイル画像を生成する（全投稿で共通の1枚を使用）</label>
       <p class="hint" id="thumbHint"></p>
     </div>
     <div class="card">
-      <div class="label">STEP 4：予約日時</div>
-      <input type="datetime-local" id="schedInput">
-      <p class="hint">投稿は1時間単位で予約されます（例: 11:30 → 11時台）。分は切り捨てられます。</p>
+      <p class="hint">本文はURL=23文字換算で140文字以内。予約は1時間単位（例: 11:30 → 11時台、分は切り捨て）。</p>
       <button class="btn" id="btnSchedule">予約する</button>
       <button class="btn ghost" id="btnBack2">案選択に戻る</button>
     </div>
@@ -206,7 +200,10 @@ const LS_TOKEN = 'xpost_token';
 const LS_NAME  = 'xpost_name';
 
 // ================= 状態 =================
-let state = { summary:'', title:'', lead:'', drafts:[], sourceUrl:'', ogImage:'', picked:-1 };
+let state = { summary:'', title:'', lead:'', drafts:[], sourceUrl:'', ogImage:'', picked:[] };
+let doneResults = [];
+let sharedImageUrl = null;
+let sharedPreview = null;
 
 // ================= ユーティリティ =================
 const $ = id => document.getElementById(id);
@@ -279,7 +276,7 @@ async function doDraft(){
     state.drafts   = d.drafts || [];
     state.sourceUrl= d.sourceUrl || '';
     state.ogImage  = d.ogImage || '';
-    state.picked   = -1;
+    state.picked   = [];
     renderDrafts();
     show('scrPick', 2);
   }catch(e){
@@ -300,23 +297,51 @@ function renderDrafts(){
     el.querySelector('.dchars').textContent = (d.chars ?? xChars(d.text)) + '字';
     el.querySelector('.dtext').textContent = d.text;
     el.onclick = () => {
-      state.picked = i;
-      document.querySelectorAll('.draft').forEach((x,xi)=>x.classList.toggle('selected', xi===i));
-      $('btnPick').disabled = false;
+      const pos = state.picked.indexOf(i);
+      if (pos >= 0) { state.picked.splice(pos, 1); }
+      else if (state.picked.length < 3) { state.picked.push(i); }
+      else { setErr('選択できるのは3案までです。他の案を外してから選択してください。'); return; }
+      setErr('');
+      document.querySelectorAll('.draft').forEach((x,xi)=>x.classList.toggle('selected', state.picked.includes(xi)));
+      $('btnPick').disabled = state.picked.length === 0;
+      $('btnPick').textContent = state.picked.length > 0 ? ('選んだ案で進む（' + state.picked.length + '件選択中）') : '選んだ案で進む';
     };
     list.appendChild(el);
   });
   $('btnPick').disabled = true;
+  $('btnPick').textContent = '選んだ案で進む';
 }
 $('btnPick').onclick = () => {
-  if (state.picked < 0) return;
-  $('editText').value = state.drafts[state.picked].text;
-  updateCount();
-  // デフォルト予約日時: 翌日の同時刻（分は00）
-  const d = new Date(Date.now() + 24*3600*1000);
-  d.setMinutes(0,0,0);
+  if (state.picked.length === 0) return;
+  doneResults = [];
+  sharedImageUrl = null;
+  sharedPreview = null;
+  const wrap = $('editBlocks');
+  wrap.innerHTML = '';
   const pad = n => String(n).padStart(2,'0');
-  $('schedInput').value = d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':00';
+  // デフォルト予約日時: 翌日の同時刻（分は00）から1日ずつずらす
+  const base = new Date(Date.now() + 24*3600*1000);
+  base.setMinutes(0,0,0);
+  state.picked.forEach((di, idx) => {
+    const d = state.drafts[di];
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML =
+      '<div class="label">STEP 3：投稿 ' + (idx+1) + '<span class="pill"></span></div>' +
+      '<textarea rows="5" class="editText"></textarea>' +
+      '<div class="counter">0 / 140</div>' +
+      '<div class="label" style="margin-top:12px">予約日時</div>' +
+      '<input type="datetime-local" class="schedInput">';
+    card.querySelector('.pill').textContent = d.label || ('案' + (di+1));
+    const ta = card.querySelector('.editText');
+    ta.value = d.text;
+    const counter = card.querySelector('.counter');
+    const upd = () => { const c = xChars(ta.value); counter.textContent = c + ' / 140'; counter.classList.toggle('over', c > 140); };
+    ta.addEventListener('input', upd); upd();
+    const dt = new Date(base.getTime() + idx*24*3600*1000);
+    card.querySelector('.schedInput').value = dt.getFullYear()+'-'+pad(dt.getMonth()+1)+'-'+pad(dt.getDate())+'T'+pad(dt.getHours())+':00';
+    wrap.appendChild(card);
+  });
   // サムネイル生成の初期値: OGP画像があれば生成不要
   const hasOgp = !!state.ogImage;
   $('genThumb').checked = !hasOgp;
@@ -330,45 +355,56 @@ $('btnPick').onclick = () => {
 $('btnBack1').onclick = () => show('scrInput', 1);
 
 // ================= STEP3 編集 =================
-function updateCount(){
-  const c = xChars($('editText').value);
-  const el = $('charCount');
-  el.textContent = c + ' / 140';
-  el.classList.toggle('over', c > 140);
-}
-$('editText').addEventListener('input', updateCount);
 $('btnBack2').onclick = () => show('scrPick', 2);
 
 // ================= STEP4 予約 =================
 async function doSchedule(){
-  const text = $('editText').value.trim();
-  const sched = $('schedInput').value;
-  if (!text){ setErr('本文が空です'); return; }
-  if (xChars(text) > 140){ setErr('本文が140文字（換算）を超えています。短くしてください。'); return; }
-  if (!sched){ setErr('予約日時を選択してください'); return; }
-  if (new Date(sched) < new Date()){ setErr('予約日時が過去になっています'); return; }
+  const blocks = Array.from(document.querySelectorAll('#editBlocks .card'));
+  if (blocks.length === 0){ setErr('投稿が選択されていません'); return; }
+  // 事前バリデーション（未登録分のみ）
+  for (let i = 0; i < blocks.length; i++){
+    const b = blocks[i];
+    if (b.dataset.done) continue;
+    const text = b.querySelector('.editText').value.trim();
+    const sched = b.querySelector('.schedInput').value;
+    if (!text){ setErr('投稿' + (i+1) + 'の本文が空です'); return; }
+    if (xChars(text) > 140){ setErr('投稿' + (i+1) + 'が140文字（換算）を超えています。短くしてください。'); return; }
+    if (!sched){ setErr('投稿' + (i+1) + 'の予約日時を選択してください'); return; }
+    if (new Date(sched) < new Date()){ setErr('投稿' + (i+1) + 'の予約日時が過去になっています'); return; }
+  }
   setErr('');
-  $('loadMsg').textContent = 'サムネイル生成とシート登録中です…（10〜20秒）';
+  const genThumb = $('genThumb').checked;
   show('scrLoad', 3);
   try{
-    const genThumb = $('genThumb').checked;
-    const r = await callApi(URL_SCHEDULE, {
-      text,
-      scheduledAt: sched,
-      sourceUrl: state.sourceUrl,
-      title: state.title || text.slice(0, 25),
-      lead: state.lead,
-      registrant: localStorage.getItem(LS_NAME) || '',
-      skipThumbnail: !genThumb
-    });
-    const imgNote = genThumb ? '生成サムネイル'
+    for (let i = 0; i < blocks.length; i++){
+      const b = blocks[i];
+      if (b.dataset.done) continue;
+      $('loadMsg').textContent = '予約登録中… (' + (doneResults.length + 1) + '/' + blocks.length + ')' +
+        (genThumb && !sharedImageUrl ? ' サムネイル生成を含みます' : '');
+      const text = b.querySelector('.editText').value.trim();
+      const useGen = genThumb && !sharedImageUrl;
+      const payload = {
+        text,
+        scheduledAt: b.querySelector('.schedInput').value,
+        sourceUrl: state.sourceUrl,
+        title: state.title || text.slice(0, 25),
+        lead: state.lead,
+        registrant: localStorage.getItem(LS_NAME) || '',
+        skipThumbnail: !useGen
+      };
+      if (!useGen && genThumb && sharedImageUrl) payload.imageUrl = sharedImageUrl;
+      const r = await callApi(URL_SCHEDULE, payload);
+      if (useGen && r.imageUrl){ sharedImageUrl = r.imageUrl; sharedPreview = r.imagePreviewUrl; }
+      b.dataset.done = '1';
+      doneResults.push(r);
+    }
+    const imgNote = genThumb ? '生成サムネイル（全投稿共通）'
       : (state.ogImage ? 'OGPカード画像（X側で自動表示）' : 'なし');
-    $('doneInfo').innerHTML =
-      '予約日時：<b>' + r.dateStr + ' ' + r.hourSlot + '台</b><br>' +
-      'スプレッドシート行：<b>' + (r.row ?? '-') + '行目</b><br>' +
-      '画像：<b>' + imgNote + '</b>';
+    $('doneInfo').innerHTML = doneResults.map((r, i) =>
+      '投稿' + (i+1) + '：<b>' + r.dateStr + ' ' + r.hourSlot + '台</b>（' + (r.row ?? '-') + '行目）'
+    ).join('<br>') + '<br>画像：<b>' + imgNote + '</b>';
     const img = $('doneImg');
-    const src = r.imagePreviewUrl || r.imageUrl || state.ogImage;
+    const src = sharedPreview || sharedImageUrl || state.ogImage;
     if (src) { img.src = src; img.style.display = 'block'; }
     else { img.style.display = 'none'; }
     show('scrDone', 4);
@@ -380,7 +416,10 @@ $('btnSchedule').onclick = doSchedule;
 
 $('btnNew').onclick = () => {
   $('srcInput').value = '';
-  state = { summary:'', title:'', lead:'', drafts:[], sourceUrl:'', picked:-1 };
+  state = { summary:'', title:'', lead:'', drafts:[], sourceUrl:'', ogImage:'', picked:[] };
+  doneResults = [];
+  sharedImageUrl = null;
+  sharedPreview = null;
   show('scrInput', 1);
 };
 
@@ -392,7 +431,10 @@ function handleErr(e, retryFn){
     return;
   }
   show(retryFn === doDraft ? 'scrInput' : 'scrEdit', retryFn === doDraft ? 1 : 3);
-  setErr('通信に失敗しました（' + e.message + '）。時間をおいて再試行してください。', retryFn);
+  const partial = (retryFn === doSchedule && doneResults.length > 0)
+    ? '登録済みの' + doneResults.length + '件はそのまま残り、再試行では未登録分のみ送信されます。'
+    : '時間をおいて再試行してください。';
+  setErr('通信に失敗しました（' + e.message + '）。' + partial, retryFn);
 }
 
 initGate();
