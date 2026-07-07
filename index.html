@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>X予約投稿ツール</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#1a2b4c; --navy-d:#16233f; --navy-l:#243a63;
+  --gold:#c9a84c; --gold-l:#e0c476;
+  --white:#ffffff; --muted:#8fa0c0; --err:#e06767; --ok:#5dbf8a;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  font-family:'Noto Sans JP',sans-serif;
+  background:linear-gradient(160deg,var(--navy-d) 0%,var(--navy) 60%,var(--navy-l) 100%);
+  min-height:100vh;color:var(--white);
+}
+.wrap{max-width:640px;margin:0 auto;padding:24px 16px 80px}
+header{text-align:center;padding:28px 0 20px}
+header h1{font-size:22px;font-weight:900;letter-spacing:.06em}
+header h1 span{color:var(--gold)}
+header p{font-size:12px;color:var(--muted);margin-top:6px}
+.card{
+  background:rgba(255,255,255,.05);
+  border:1px solid rgba(201,168,76,.35);
+  border-radius:14px;padding:20px;margin-bottom:18px;
+}
+.label{font-size:13px;font-weight:700;color:var(--gold);margin-bottom:8px;letter-spacing:.05em}
+textarea,input[type="text"],input[type="password"],input[type="datetime-local"]{
+  width:100%;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.18);
+  border-radius:10px;color:var(--white);font-family:inherit;font-size:15px;
+  padding:12px 14px;outline:none;transition:border .15s;
+}
+textarea:focus,input:focus{border-color:var(--gold)}
+textarea{resize:vertical;min-height:96px;line-height:1.6}
+input[type="datetime-local"]{color-scheme:dark}
+.btn{
+  display:block;width:100%;border:none;border-radius:12px;cursor:pointer;
+  font-family:inherit;font-weight:700;font-size:16px;padding:14px;
+  background:linear-gradient(135deg,var(--gold) 0%,var(--gold-l) 100%);
+  color:var(--navy);letter-spacing:.08em;transition:opacity .15s,transform .1s;
+  margin-top:14px;
+}
+.btn:hover{opacity:.9}
+.btn:active{transform:scale(.99)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.ghost{background:transparent;border:1px solid var(--gold);color:var(--gold)}
+.hint{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.6}
+.hidden{display:none!important}
+/* loading */
+.loading{text-align:center;padding:36px 0}
+.spinner{
+  width:44px;height:44px;border-radius:50%;margin:0 auto 14px;
+  border:4px solid rgba(201,168,76,.25);border-top-color:var(--gold);
+  animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading p{font-size:13px;color:var(--muted)}
+/* summary */
+.summary{font-size:14px;line-height:1.8;white-space:pre-wrap;color:#dfe6f2}
+/* draft cards */
+.draft{
+  border:2px solid rgba(255,255,255,.15);border-radius:12px;
+  padding:14px;margin-top:12px;cursor:pointer;transition:border .15s,background .15s;
+  position:relative;
+}
+.draft:hover{border-color:rgba(201,168,76,.6)}
+.draft.selected{border-color:var(--gold);background:rgba(201,168,76,.10)}
+.draft .dlabel{
+  display:inline-block;font-size:11px;font-weight:700;color:var(--navy);
+  background:var(--gold);border-radius:999px;padding:3px 12px;margin-bottom:8px;
+}
+.draft .dtext{font-size:14px;line-height:1.7;white-space:pre-wrap;word-break:break-all}
+.draft .dchars{
+  position:absolute;top:12px;right:12px;font-size:11px;font-weight:700;
+  color:var(--muted);border:1px solid rgba(255,255,255,.2);border-radius:999px;padding:2px 10px;
+}
+.draft.selected .dchars{color:var(--gold);border-color:var(--gold)}
+/* counter */
+.counter{font-size:13px;font-weight:700;text-align:right;margin-top:6px;color:var(--ok)}
+.counter.over{color:var(--err)}
+/* error */
+.errbox{
+  background:rgba(224,103,103,.12);border:1px solid var(--err);
+  border-radius:10px;padding:14px;font-size:13px;line-height:1.6;margin-bottom:14px;
+}
+/* done */
+.done{text-align:center;padding:10px 0}
+.done .big{font-size:44px;margin-bottom:8px}
+.done h2{font-size:18px;font-weight:900;color:var(--gold);margin-bottom:14px}
+.done .info{font-size:14px;line-height:2;color:#dfe6f2}
+.done img{
+  width:220px;height:220px;border-radius:12px;border:2px solid var(--gold);
+  margin:16px auto;display:block;object-fit:cover;background:rgba(0,0,0,.3);
+}
+.steps{display:flex;justify-content:center;gap:8px;margin-bottom:22px}
+.steps .st{
+  width:30px;height:6px;border-radius:3px;background:rgba(255,255,255,.15);
+}
+.steps .st.on{background:var(--gold)}
+footer{text-align:center;font-size:11px;color:var(--muted);margin-top:30px}
+@media (max-width:480px){
+  header h1{font-size:19px}
+  .card{padding:16px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>X<span>予約投稿</span>ツール</h1>
+    <p>記事URL・イベント詳細から投稿文を自動生成して予約登録</p>
+  </header>
+
+  <div class="steps" id="steps">
+    <div class="st on" data-s="1"></div><div class="st" data-s="2"></div><div class="st" data-s="3"></div><div class="st" data-s="4"></div>
+  </div>
+
+  <div id="errArea"></div>
+
+  <!-- パスコード -->
+  <section id="scrPass" class="card hidden">
+    <div class="label">パスコード</div>
+    <input type="password" id="passInput" placeholder="チーム共有のパスコードを入力" autocomplete="off">
+    <div class="label" style="margin-top:14px">お名前（シートの登録者欄に記録されます）</div>
+    <input type="text" id="nameInput" placeholder="例: 山田" autocomplete="off">
+    <button class="btn" id="btnPass">はじめる</button>
+    <p class="hint">パスコードはこの端末に保存され、次回から入力不要です。</p>
+  </section>
+
+  <!-- STEP1 入力 -->
+  <section id="scrInput" class="card hidden">
+    <div class="label">STEP 1：記事URL または イベント詳細</div>
+    <textarea id="srcInput" placeholder="https://example.com/article&#10;または、イベントの詳細テキストを貼り付け"></textarea>
+    <button class="btn" id="btnDraft">下書きを生成する</button>
+    <p class="hint">URLを入れると記事を自動で読み取り、要約とポスト3案を生成します（20〜40秒ほどかかります）。</p>
+  </section>
+
+  <!-- ローディング -->
+  <section id="scrLoad" class="card hidden">
+    <div class="loading"><div class="spinner"></div><p id="loadMsg">生成中です…</p></div>
+  </section>
+
+  <!-- STEP2 案選択 -->
+  <section id="scrPick" class="hidden">
+    <div class="card">
+      <div class="label">要約</div>
+      <div class="summary" id="summaryBox"></div>
+    </div>
+    <div class="card">
+      <div class="label">STEP 2：ポスト案を選択</div>
+      <div id="draftList"></div>
+      <button class="btn" id="btnPick" disabled>この案で進む</button>
+      <button class="btn ghost" id="btnBack1">入力に戻る</button>
+    </div>
+  </section>
+
+  <!-- STEP3 編集・予約 -->
+  <section id="scrEdit" class="hidden">
+    <div class="card">
+      <div class="label">STEP 3：本文の微修正</div>
+      <textarea id="editText" rows="6"></textarea>
+      <div class="counter" id="charCount">0 / 140</div>
+      <p class="hint">URLは23文字換算。140文字以内に収めてください。</p>
+    </div>
+    <div class="card">
+      <div class="label">STEP 4：予約日時</div>
+      <input type="datetime-local" id="schedInput">
+      <p class="hint">投稿は1時間単位で予約されます（例: 11:30 → 11時台）。分は切り捨てられます。</p>
+      <button class="btn" id="btnSchedule">予約する</button>
+      <button class="btn ghost" id="btnBack2">案選択に戻る</button>
+    </div>
+  </section>
+
+  <!-- 完了 -->
+  <section id="scrDone" class="card hidden">
+    <div class="done">
+      <div class="big">🎉</div>
+      <h2>予約が完了しました</h2>
+      <div class="info" id="doneInfo"></div>
+      <img id="doneImg" alt="サムネイルプレビュー">
+      <button class="btn" id="btnNew">新しい投稿を作成</button>
+    </div>
+  </section>
+
+  <footer>チーム内利用専用 / パスコードは社外に共有しないでください</footer>
+</div>
+
+<script>
+// ================= 設定 =================
+const WEBHOOK_BASE = 'https://primary-production-c67f.up.railway.app/webhook';
+const URL_DRAFT    = WEBHOOK_BASE + '/x-post-draft';
+const URL_SCHEDULE = WEBHOOK_BASE + '/x-post-schedule';
+const LS_TOKEN = 'xpost_token';
+const LS_NAME  = 'xpost_name';
+
+// ================= 状態 =================
+let state = { summary:'', title:'', lead:'', drafts:[], sourceUrl:'', picked:-1 };
+
+// ================= ユーティリティ =================
+const $ = id => document.getElementById(id);
+const screens = ['scrPass','scrInput','scrLoad','scrPick','scrEdit','scrDone'];
+function show(id, step){
+  screens.forEach(s => $(s).classList.toggle('hidden', s !== id));
+  if (step) document.querySelectorAll('.st').forEach(el =>
+    el.classList.toggle('on', Number(el.dataset.s) <= step));
+}
+function setErr(msg, retryFn){
+  const area = $('errArea');
+  if (!msg){ area.innerHTML=''; return; }
+  area.innerHTML = '<div class="errbox">⚠ ' + msg +
+    (retryFn ? '<button class="btn" id="btnRetry" style="margin-top:10px">再試行</button>' : '') + '</div>';
+  if (retryFn) $('btnRetry').onclick = () => { setErr(''); retryFn(); };
+}
+// X換算文字数（URLは23文字換算）
+function xChars(text){
+  const urls = text.match(/https?:\/\/\S+/g) || [];
+  let rest = text;
+  urls.forEach(u => rest = rest.replace(u,''));
+  return Array.from(rest).length + urls.length * 23;
+}
+async function callApi(url, payload){
+  const res = await fetch(url, {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', 'X-App-Token': localStorage.getItem(LS_TOKEN) || '' },
+    body: JSON.stringify(payload)
+  });
+  if (res.status === 401){
+    localStorage.removeItem(LS_TOKEN);
+    throw new Error('AUTH');
+  }
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}
+
+// ================= パスコード =================
+function initGate(){
+  if (localStorage.getItem(LS_TOKEN) && localStorage.getItem(LS_NAME)){
+    show('scrInput', 1);
+  } else {
+    $('nameInput').value = localStorage.getItem(LS_NAME) || '';
+    show('scrPass');
+  }
+}
+$('btnPass').onclick = () => {
+  const t = $('passInput').value.trim();
+  const n = $('nameInput').value.trim();
+  if (!t){ setErr('パスコードを入力してください'); return; }
+  if (!n){ setErr('お名前を入力してください'); return; }
+  localStorage.setItem(LS_TOKEN, t);
+  localStorage.setItem(LS_NAME, n);
+  setErr('');
+  show('scrInput', 1);
+};
+
+// ================= STEP1 下書き生成 =================
+async function doDraft(){
+  const input = $('srcInput').value.trim();
+  if (!input){ setErr('URLまたはイベント詳細を入力してください'); return; }
+  setErr('');
+  $('loadMsg').textContent = '記事の読み取りとポスト案の生成中です…（20〜40秒）';
+  show('scrLoad', 1);
+  try{
+    const d = await callApi(URL_DRAFT, { input });
+    state.summary  = d.summary || '';
+    state.title    = d.title || '';
+    state.lead     = d.lead || '';
+    state.drafts   = d.drafts || [];
+    state.sourceUrl= d.sourceUrl || '';
+    state.picked   = -1;
+    renderDrafts();
+    show('scrPick', 2);
+  }catch(e){
+    handleErr(e, doDraft);
+  }
+}
+$('btnDraft').onclick = doDraft;
+
+function renderDrafts(){
+  $('summaryBox').textContent = state.summary;
+  const list = $('draftList');
+  list.innerHTML = '';
+  state.drafts.forEach((d,i) => {
+    const el = document.createElement('div');
+    el.className = 'draft';
+    el.innerHTML = '<span class="dlabel"></span><span class="dchars"></span><div class="dtext"></div>';
+    el.querySelector('.dlabel').textContent = d.label || ('案' + (i+1));
+    el.querySelector('.dchars').textContent = (d.chars ?? xChars(d.text)) + '字';
+    el.querySelector('.dtext').textContent = d.text;
+    el.onclick = () => {
+      state.picked = i;
+      document.querySelectorAll('.draft').forEach((x,xi)=>x.classList.toggle('selected', xi===i));
+      $('btnPick').disabled = false;
+    };
+    list.appendChild(el);
+  });
+  $('btnPick').disabled = true;
+}
+$('btnPick').onclick = () => {
+  if (state.picked < 0) return;
+  $('editText').value = state.drafts[state.picked].text;
+  updateCount();
+  // デフォルト予約日時: 翌日の同時刻（分は00）
+  const d = new Date(Date.now() + 24*3600*1000);
+  d.setMinutes(0,0,0);
+  const pad = n => String(n).padStart(2,'0');
+  $('schedInput').value = d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':00';
+  show('scrEdit', 3);
+};
+$('btnBack1').onclick = () => show('scrInput', 1);
+
+// ================= STEP3 編集 =================
+function updateCount(){
+  const c = xChars($('editText').value);
+  const el = $('charCount');
+  el.textContent = c + ' / 140';
+  el.classList.toggle('over', c > 140);
+}
+$('editText').addEventListener('input', updateCount);
+$('btnBack2').onclick = () => show('scrPick', 2);
+
+// ================= STEP4 予約 =================
+async function doSchedule(){
+  const text = $('editText').value.trim();
+  const sched = $('schedInput').value;
+  if (!text){ setErr('本文が空です'); return; }
+  if (xChars(text) > 140){ setErr('本文が140文字（換算）を超えています。短くしてください。'); return; }
+  if (!sched){ setErr('予約日時を選択してください'); return; }
+  if (new Date(sched) < new Date()){ setErr('予約日時が過去になっています'); return; }
+  setErr('');
+  $('loadMsg').textContent = 'サムネイル生成とシート登録中です…（10〜20秒）';
+  show('scrLoad', 3);
+  try{
+    const r = await callApi(URL_SCHEDULE, {
+      text,
+      scheduledAt: sched,
+      sourceUrl: state.sourceUrl,
+      title: state.title || text.slice(0, 25),
+      lead: state.lead,
+      registrant: localStorage.getItem(LS_NAME) || ''
+    });
+    $('doneInfo').innerHTML =
+      '予約日時：<b>' + r.dateStr + ' ' + r.hourSlot + '台</b><br>' +
+      'スプレッドシート行：<b>' + (r.row ?? '-') + '行目</b>';
+    $('doneImg').src = r.imagePreviewUrl || r.imageUrl;
+    show('scrDone', 4);
+  }catch(e){
+    handleErr(e, doSchedule);
+  }
+}
+$('btnSchedule').onclick = doSchedule;
+
+$('btnNew').onclick = () => {
+  $('srcInput').value = '';
+  state = { summary:'', title:'', lead:'', drafts:[], sourceUrl:'', picked:-1 };
+  show('scrInput', 1);
+};
+
+// ================= エラー処理 =================
+function handleErr(e, retryFn){
+  if (e.message === 'AUTH'){
+    show('scrPass');
+    setErr('パスコードが正しくないか、無効になっています。再入力してください。');
+    return;
+  }
+  show(retryFn === doDraft ? 'scrInput' : 'scrEdit', retryFn === doDraft ? 1 : 3);
+  setErr('通信に失敗しました（' + e.message + '）。時間をおいて再試行してください。', retryFn);
+}
+
+initGate();
+</script>
+</body>
+</html>
