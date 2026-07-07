@@ -82,6 +82,9 @@ input[type="datetime-local"]{color-scheme:dark}
 /* counter */
 .counter{font-size:13px;font-weight:700;text-align:right;margin-top:6px;color:var(--ok)}
 .counter.over{color:var(--err)}
+/* checkbox */
+.chk{display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer;margin-top:4px}
+.chk input{width:18px;height:18px;accent-color:var(--gold);cursor:pointer}
 /* error */
 .errbox{
   background:rgba(224,103,103,.12);border:1px solid var(--err);
@@ -167,6 +170,11 @@ footer{text-align:center;font-size:11px;color:var(--muted);margin-top:30px}
       <p class="hint">URLは23文字換算。140文字以内に収めてください。</p>
     </div>
     <div class="card">
+      <div class="label">サムネイル画像</div>
+      <label class="chk"><input type="checkbox" id="genThumb"> サムネイル画像を生成する</label>
+      <p class="hint" id="thumbHint"></p>
+    </div>
+    <div class="card">
       <div class="label">STEP 4：予約日時</div>
       <input type="datetime-local" id="schedInput">
       <p class="hint">投稿は1時間単位で予約されます（例: 11:30 → 11時台）。分は切り捨てられます。</p>
@@ -198,7 +206,7 @@ const LS_TOKEN = 'xpost_token';
 const LS_NAME  = 'xpost_name';
 
 // ================= 状態 =================
-let state = { summary:'', title:'', lead:'', drafts:[], sourceUrl:'', picked:-1 };
+let state = { summary:'', title:'', lead:'', drafts:[], sourceUrl:'', ogImage:'', picked:-1 };
 
 // ================= ユーティリティ =================
 const $ = id => document.getElementById(id);
@@ -270,6 +278,7 @@ async function doDraft(){
     state.lead     = d.lead || '';
     state.drafts   = d.drafts || [];
     state.sourceUrl= d.sourceUrl || '';
+    state.ogImage  = d.ogImage || '';
     state.picked   = -1;
     renderDrafts();
     show('scrPick', 2);
@@ -308,6 +317,14 @@ $('btnPick').onclick = () => {
   d.setMinutes(0,0,0);
   const pad = n => String(n).padStart(2,'0');
   $('schedInput').value = d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':00';
+  // サムネイル生成の初期値: OGP画像があれば生成不要
+  const hasOgp = !!state.ogImage;
+  $('genThumb').checked = !hasOgp;
+  $('thumbHint').textContent = hasOgp
+    ? 'リンク先にOGP画像が設定されているため、Xでは自動でカード画像が表示されます。通常は生成不要です。'
+    : (state.sourceUrl
+        ? 'リンク先に画像設定（OGP）が見つからないため、サムネイル画像を生成します。'
+        : 'URLなしの投稿のため、サムネイル画像を生成します。');
   show('scrEdit', 3);
 };
 $('btnBack1').onclick = () => show('scrInput', 1);
@@ -334,18 +351,26 @@ async function doSchedule(){
   $('loadMsg').textContent = 'サムネイル生成とシート登録中です…（10〜20秒）';
   show('scrLoad', 3);
   try{
+    const genThumb = $('genThumb').checked;
     const r = await callApi(URL_SCHEDULE, {
       text,
       scheduledAt: sched,
       sourceUrl: state.sourceUrl,
       title: state.title || text.slice(0, 25),
       lead: state.lead,
-      registrant: localStorage.getItem(LS_NAME) || ''
+      registrant: localStorage.getItem(LS_NAME) || '',
+      skipThumbnail: !genThumb
     });
+    const imgNote = genThumb ? '生成サムネイル'
+      : (state.ogImage ? 'OGPカード画像（X側で自動表示）' : 'なし');
     $('doneInfo').innerHTML =
       '予約日時：<b>' + r.dateStr + ' ' + r.hourSlot + '台</b><br>' +
-      'スプレッドシート行：<b>' + (r.row ?? '-') + '行目</b>';
-    $('doneImg').src = r.imagePreviewUrl || r.imageUrl;
+      'スプレッドシート行：<b>' + (r.row ?? '-') + '行目</b><br>' +
+      '画像：<b>' + imgNote + '</b>';
+    const img = $('doneImg');
+    const src = r.imagePreviewUrl || r.imageUrl || state.ogImage;
+    if (src) { img.src = src; img.style.display = 'block'; }
+    else { img.style.display = 'none'; }
     show('scrDone', 4);
   }catch(e){
     handleErr(e, doSchedule);
