@@ -86,6 +86,13 @@ input[type="datetime-local"]{color-scheme:dark}
 .chk{display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer;margin-top:4px}
 .chk input{width:18px;height:18px;accent-color:var(--gold);cursor:pointer}
 .pill{display:inline-block;font-size:11px;font-weight:700;color:var(--navy);background:var(--gold);border-radius:999px;padding:2px 10px;margin-left:8px;vertical-align:middle}
+/* media */
+.mediaItem{display:flex;align-items:center;gap:10px;margin-top:8px;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.15);border-radius:10px;padding:8px 10px}
+.mediaItem img{width:48px;height:48px;object-fit:cover;border-radius:8px;background:rgba(0,0,0,.3)}
+.mediaItem .mi-icon{width:48px;height:48px;border-radius:8px;background:rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;font-size:22px}
+.mediaItem .mi-name{flex:1;font-size:12px;color:#dfe6f2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mediaItem .mi-badge{font-size:10px;color:var(--gold);border:1px solid var(--gold);border-radius:999px;padding:1px 8px;flex-shrink:0}
+.mediaItem .mi-del{background:none;border:none;color:var(--err);font-size:18px;cursor:pointer;padding:0 4px}
 /* error */
 .errbox{
   background:rgba(224,103,103,.12);border:1px solid var(--err);
@@ -138,7 +145,12 @@ footer{text-align:center;font-size:11px;color:var(--muted);margin-top:30px}
   <!-- STEP1 入力 -->
   <section id="scrInput" class="card hidden">
     <div class="label">STEP 1：記事URL または イベント詳細</div>
-    <textarea id="srcInput" placeholder="https://example.com/article&#10;または、イベントの詳細テキストを貼り付け"></textarea>
+    <textarea id="srcInput" placeholder="https://example.com/article&#10;または、イベントの詳細テキスト／写真に添える一言コメント"></textarea>
+    <div class="label" style="margin-top:14px">写真・動画を添付（任意）</div>
+    <input type="file" id="mediaInput" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime" multiple class="hidden">
+    <button class="btn ghost" id="btnAddMedia" type="button" style="margin-top:4px">＋ 写真・動画を選ぶ</button>
+    <div id="mediaList"></div>
+    <p class="hint">画像は最大4枚（自動圧縮）、または動画1本（10MBまで）。写真を付けると、AIが写真の内容も見て文章を膨らませます。</p>
     <button class="btn" id="btnDraft">下書きを生成する</button>
     <p class="hint">URLを入れると記事を自動で読み取り、要約とポスト3案を生成します（20〜40秒ほどかかります）。</p>
   </section>
@@ -196,6 +208,7 @@ footer{text-align:center;font-size:11px;color:var(--muted);margin-top:30px}
 const WEBHOOK_BASE = 'https://primary-production-c67f.up.railway.app/webhook';
 const URL_DRAFT    = WEBHOOK_BASE + '/x-post-draft';
 const URL_SCHEDULE = WEBHOOK_BASE + '/x-post-schedule';
+const URL_MEDIA    = WEBHOOK_BASE + '/x-post-media';
 const LS_TOKEN = 'xpost_token';
 const LS_NAME  = 'xpost_name';
 
@@ -204,6 +217,7 @@ let state = { summary:'', title:'', lead:'', drafts:[], sourceUrl:'', ogImage:''
 let doneResults = [];
 let sharedImageUrl = null;
 let sharedPreview = null;
+let mediaFiles = []; // { file, kind: 'image'|'video', previewDataUrl, uploaded: {url, previewUrl, type}|null }
 
 // ================= ユーティリティ =================
 const $ = id => document.getElementById(id);
@@ -261,15 +275,111 @@ $('btnPass').onclick = () => {
   show('scrInput', 1);
 };
 
+// ================= メディア添付 =================
+$('btnAddMedia').onclick = () => $('mediaInput').click();
+$('mediaInput').onchange = () => {
+  const files = Array.from($('mediaInput').files || []);
+  $('mediaInput').value = '';
+  for (const f of files){
+    const isVideo = f.type.startsWith('video/');
+    const hasVideo = mediaFiles.some(m => m.kind === 'video');
+    const imgCount = mediaFiles.filter(m => m.kind === 'image').length;
+    if (isVideo){
+      if (hasVideo || imgCount > 0){ setErr('動画は1本のみで、画像と同時には添付できません'); continue; }
+      if (f.size > 10 * 1024 * 1024){ setErr('動画は10MB以下にしてください（' + f.name + '）'); continue; }
+      mediaFiles.push({ file: f, kind: 'video', previewDataUrl: '', uploaded: null });
+    } else if (f.type.startsWith('image/')){
+      if (hasVideo){ setErr('動画と画像は同時に添付できません'); continue; }
+      if (imgCount >= 4){ setErr('画像は最大4枚までです'); continue; }
+      const item = { file: f, kind: 'image', previewDataUrl: '', uploaded: null };
+      mediaFiles.push(item);
+      const rd = new FileReader();
+      rd.onload = () => { item.previewDataUrl = rd.result; renderMediaList(); };
+      rd.readAsDataURL(f);
+    }
+  }
+  renderMediaList();
+};
+function renderMediaList(){
+  const list = $('mediaList');
+  list.innerHTML = '';
+  mediaFiles.forEach((m, i) => {
+    const el = document.createElement('div');
+    el.className = 'mediaItem';
+    el.innerHTML = (m.kind === 'image'
+        ? '<img alt="">'
+        : '<div class="mi-icon">🎬</div>') +
+      '<span class="mi-name"></span>' +
+      '<span class="mi-badge">' + (m.kind === 'image' ? '画像' : '動画') + (m.uploaded ? '・済' : '') + '</span>' +
+      '<button class="mi-del" type="button">✕</button>';
+    if (m.kind === 'image' && m.previewDataUrl) el.querySelector('img').src = m.previewDataUrl;
+    el.querySelector('.mi-name').textContent = m.file.name + '（' + (m.file.size/1024/1024).toFixed(1) + 'MB）';
+    el.querySelector('.mi-del').onclick = () => { mediaFiles.splice(i, 1); renderMediaList(); };
+    list.appendChild(el);
+  });
+}
+function compressImage(file){
+  return new Promise((resolve, reject) => {
+    if (file.type === 'image/gif'){ resolve({ blob: file, mime: file.type }); return; }
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const MAX = 2048;
+      let w = img.width, h = img.height;
+      if (w > MAX || h > MAX){ const r = Math.min(MAX / w, MAX / h); w = Math.round(w * r); h = Math.round(h * r); }
+      const cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      cv.getContext('2d').drawImage(img, 0, 0, w, h);
+      cv.toBlob(b => {
+        if (b && b.size < file.size) resolve({ blob: b, mime: 'image/jpeg' });
+        else resolve({ blob: file, mime: file.type });
+      }, 'image/jpeg', 0.85);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('画像の読み込みに失敗: ' + file.name)); };
+    img.src = url;
+  });
+}
+function blobToB64(blob){
+  return new Promise((resolve, reject) => {
+    const rd = new FileReader();
+    rd.onload = () => resolve(String(rd.result).split(',')[1] || '');
+    rd.onerror = reject;
+    rd.readAsDataURL(blob);
+  });
+}
+async function uploadAllMedia(){
+  const total = mediaFiles.length;
+  for (let i = 0; i < mediaFiles.length; i++){
+    const m = mediaFiles[i];
+    if (m.uploaded) continue;
+    $('loadMsg').textContent = 'メディアをアップロード中… (' + (i+1) + '/' + total + ')';
+    let blob = m.file, mime = m.file.type;
+    if (m.kind === 'image'){ const c = await compressImage(m.file); blob = c.blob; mime = c.mime; }
+    const limit = m.kind === 'video' ? 10.5 * 1024 * 1024 : 2.9 * 1024 * 1024;
+    if (blob.size > limit) throw new Error(m.file.name + ' の容量が大きすぎます（' + (blob.size/1024/1024).toFixed(1) + 'MB）');
+    const b64 = await blobToB64(blob);
+    const r = await callApi(URL_MEDIA, { name: m.file.name, mime, dataB64: b64 });
+    m.uploaded = r;
+    renderMediaList();
+  }
+}
+
 // ================= STEP1 下書き生成 =================
 async function doDraft(){
   const input = $('srcInput').value.trim();
-  if (!input){ setErr('URLまたはイベント詳細を入力してください'); return; }
+  if (!input){
+    setErr(mediaFiles.length ? '写真・動画に添える一言コメントを入力してください' : 'URLまたはイベント詳細を入力してください');
+    return;
+  }
   setErr('');
   $('loadMsg').textContent = '記事の読み取りとポスト案の生成中です…（20〜40秒）';
   show('scrLoad', 1);
   try{
-    const d = await callApi(URL_DRAFT, { input });
+    if (mediaFiles.length) await uploadAllMedia();
+    $('loadMsg').textContent = 'ポスト案の生成中です…（20〜40秒）';
+    const imageUrls = mediaFiles.filter(m => m.uploaded && m.uploaded.type === 'image').map(m => m.uploaded.url);
+    const d = await callApi(URL_DRAFT, imageUrls.length ? { input, imageUrls } : { input });
     state.summary  = d.summary || '';
     state.title    = d.title || '';
     state.lead     = d.lead || '';
@@ -342,14 +452,22 @@ $('btnPick').onclick = () => {
     card.querySelector('.schedInput').value = dt.getFullYear()+'-'+pad(dt.getMonth()+1)+'-'+pad(dt.getDate())+'T'+pad(dt.getHours())+':00';
     wrap.appendChild(card);
   });
-  // サムネイル生成の初期値: OGP画像があれば生成不要
+  // サムネイル生成の初期値: 添付メディア > OGP画像 > 生成
+  const hasMedia = mediaFiles.some(m => m.uploaded);
   const hasOgp = !!state.ogImage;
-  $('genThumb').checked = !hasOgp;
-  $('thumbHint').textContent = hasOgp
-    ? 'リンク先にOGP画像が設定されているため、Xでは自動でカード画像が表示されます。通常は生成不要です。'
-    : (state.sourceUrl
-        ? 'リンク先に画像設定（OGP）が見つからないため、サムネイル画像を生成します。'
-        : 'URLなしの投稿のため、サムネイル画像を生成します。');
+  if (hasMedia){
+    $('genThumb').checked = false;
+    $('genThumb').disabled = true;
+    $('thumbHint').textContent = '添付した写真・動画を投稿に使用するため、サムネイル生成は行いません。';
+  } else {
+    $('genThumb').disabled = false;
+    $('genThumb').checked = !hasOgp;
+    $('thumbHint').textContent = hasOgp
+      ? 'リンク先にOGP画像が設定されているため、Xでは自動でカード画像が表示されます。通常は生成不要です。'
+      : (state.sourceUrl
+          ? 'リンク先に画像設定（OGP）が見つからないため、サムネイル画像を生成します。'
+          : 'URLなしの投稿のため、サムネイル画像を生成します。');
+  }
   show('scrEdit', 3);
 };
 $('btnBack1').onclick = () => show('scrInput', 1);
@@ -383,6 +501,8 @@ async function doSchedule(){
         (genThumb && !sharedImageUrl ? ' サムネイル生成を含みます' : '');
       const text = b.querySelector('.editText').value.trim();
       const useGen = genThumb && !sharedImageUrl;
+      const mediaImgs = mediaFiles.filter(m => m.uploaded && m.uploaded.type === 'image').map(m => m.uploaded.url);
+      const mediaVideo = (mediaFiles.find(m => m.uploaded && m.uploaded.type === 'video') || { uploaded: {} }).uploaded.url || '';
       const payload = {
         text,
         scheduledAt: b.querySelector('.schedInput').value,
@@ -392,19 +512,24 @@ async function doSchedule(){
         registrant: localStorage.getItem(LS_NAME) || '',
         skipThumbnail: !useGen
       };
+      if (mediaImgs.length) payload.mediaUrls = mediaImgs;
+      if (mediaVideo) payload.videoUrl = mediaVideo;
       if (!useGen && genThumb && sharedImageUrl) payload.imageUrl = sharedImageUrl;
       const r = await callApi(URL_SCHEDULE, payload);
       if (useGen && r.imageUrl){ sharedImageUrl = r.imageUrl; sharedPreview = r.imagePreviewUrl; }
       b.dataset.done = '1';
       doneResults.push(r);
     }
-    const imgNote = genThumb ? '生成サムネイル（全投稿共通）'
-      : (state.ogImage ? 'OGPカード画像（X側で自動表示）' : 'なし');
+    const mediaCount = mediaFiles.filter(m => m.uploaded).length;
+    const imgNote = mediaCount > 0 ? ('添付メディア ' + mediaCount + '点')
+      : (genThumb ? '生成サムネイル（全投稿共通）'
+      : (state.ogImage ? 'OGPカード画像（X側で自動表示）' : 'なし'));
     $('doneInfo').innerHTML = doneResults.map((r, i) =>
       '投稿' + (i+1) + '：<b>' + r.dateStr + ' ' + r.hourSlot + '台</b>（' + (r.row ?? '-') + '行目）'
     ).join('<br>') + '<br>画像：<b>' + imgNote + '</b>';
     const img = $('doneImg');
-    const src = sharedPreview || sharedImageUrl || state.ogImage;
+    const firstMedia = mediaFiles.find(m => m.uploaded && m.uploaded.type === 'image');
+    const src = sharedPreview || sharedImageUrl || (firstMedia ? (firstMedia.previewDataUrl || firstMedia.uploaded.previewUrl) : '') || state.ogImage;
     if (src) { img.src = src; img.style.display = 'block'; }
     else { img.style.display = 'none'; }
     show('scrDone', 4);
@@ -420,6 +545,8 @@ $('btnNew').onclick = () => {
   doneResults = [];
   sharedImageUrl = null;
   sharedPreview = null;
+  mediaFiles = [];
+  renderMediaList();
   show('scrInput', 1);
 };
 
