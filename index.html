@@ -381,7 +381,8 @@ async function doDraft(){
   try{
     if (mediaFiles.length) await uploadAllMedia();
     $('loadMsg').textContent = 'ポスト案の生成中です…（20〜40秒）';
-    const imageUrls = mediaFiles.filter(m => m.uploaded && m.uploaded.type === 'image').map(m => m.uploaded.url);
+    // AIの画像認識には直接取得URL（directUrl）を使う。シート記入用のurl（file/d形式）とは別。
+    const imageUrls = mediaFiles.filter(m => m.uploaded && m.uploaded.type === 'image').map(m => m.uploaded.directUrl || m.uploaded.url);
     const d = await callApi(URL_DRAFT, imageUrls.length ? { input, imageUrls } : { input });
     state.summary  = d.summary || '';
     state.title    = d.title || '';
