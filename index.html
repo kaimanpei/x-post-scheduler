@@ -323,7 +323,6 @@ function renderMediaList(){
 }
 function compressImage(file){
   return new Promise((resolve, reject) => {
-    if (file.type === 'image/gif'){ resolve({ blob: file, mime: file.type }); return; }
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = () => {
@@ -335,7 +334,9 @@ function compressImage(file){
       cv.width = w; cv.height = h;
       cv.getContext('2d').drawImage(img, 0, 0, w, h);
       cv.toBlob(b => {
-        if (b && b.size < file.size) resolve({ blob: b, mime: 'image/jpeg' });
+        // 投稿ツール(GAS)はJPEG/PNGのみ対応のため、webp/gif等は必ずJPEGへ変換する
+        const isSafeType = file.type === 'image/jpeg' || file.type === 'image/png';
+        if (b && !(isSafeType && b.size >= file.size)) resolve({ blob: b, mime: 'image/jpeg' });
         else resolve({ blob: file, mime: file.type });
       }, 'image/jpeg', 0.85);
     };
